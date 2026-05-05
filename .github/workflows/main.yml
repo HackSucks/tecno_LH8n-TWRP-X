@@ -78,7 +78,7 @@ jobs:
         if: ${{ github.event.inputs.firmware_version == 'V659' || github.event.inputs.firmware_version == 'BOTH' }}
         run: |
           DRIVER_BASE_URL="https://github.com/HackSucks/tecno_LH8n-TWRP-X/releases/download/v659drv"
-          DRIVER_DEST="/twrp/device/tecno/LH8n/prebuilt/v659/touchscreen"
+          DRIVER_DEST="$GITHUB_WORKSPACE/twrp/device/tecno/LH8n/prebuilt/v659/touchscreen"
 
           mkdir -p "$DRIVER_DEST"
 

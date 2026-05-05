@@ -54,8 +54,8 @@ jobs:
 
       - name: Init TWRP manifest
         run: |
-          mkdir -p /twrp
-          cd /twrp
+          mkdir -p $GITHUB_WORKSPACE/twrp
+          cd $GITHUB_WORKSPACE/twrp
           repo init \
             -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git \
             -b twrp-12.1 \
@@ -63,13 +63,13 @@ jobs:
 
       - name: Sync sources
         run: |
-          cd /twrp
+          cd $GITHUB_WORKSPACE/twrp
           repo sync -c -j$(nproc) --no-clone-bundle --no-tags --optimized-fetch --prune
 
       - name: Clone device tree
         run: |
-          cd /twrp
-          git clone https://github.com/naden01/tecno_LH8n-TWRP.git \
+          cd $GITHUB_WORKSPACE/twrp
+          git clone https://github.com/HackSucks/tecno_LH8n-TWRP-X.git \
             -b android-12.1 \
             --depth=1 \
             device/tecno/LH8n
@@ -97,14 +97,14 @@ jobs:
 
       - name: Set build version name
         run: |
-          cd /twrp
+          cd $GITHUB_WORKSPACE/twrp
           BUILD_DATE=$(date +%Y%m%d)
           FIRMWARE=${{ github.event.inputs.firmware_version }}
           echo "CUSTOM_BUILD_NAME=TWRP-LH8n-12.1-NVMe-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV
 
       - name: Build TWRP
         run: |
-          cd /twrp
+          cd $GITHUB_WORKSPACE/twrp
           export ALLOW_MISSING_DEPENDENCIES=true
           export USE_CCACHE=1
           export CCACHE_EXEC=$(which ccache)
@@ -118,10 +118,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: /twrp/build.log
+          path: $GITHUB_WORKSPACE/twrp/build.log
 
       - name: Upload TWRP image
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.CUSTOM_BUILD_NAME }}
-          path: /twrp/out/target/product/LH8n/vendor_boot.img
+          path: $GITHUB_WORKSPACE/twrp/out/target/product/LH8n/vendor_boot.img

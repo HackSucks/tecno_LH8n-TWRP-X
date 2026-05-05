@@ -192,5 +192,8 @@ TARGET_RECOVERY_DEVICE_MODULES := libinit_LH8n
 # Vendor Modules
 TW_LOAD_VENDOR_BOOT_MODULES := true
 
+# Load files
+TW_LOAD_VENDOR_MODULES := "adaptive-ts.ko focaltech_noflash_common.ko ilitek_common.ko"
+
 # Version
-TW_DEVICE_VERSION := Nazephyrus | LH8n
+TW_DEVICE_VERSION := NVMe | LH8n

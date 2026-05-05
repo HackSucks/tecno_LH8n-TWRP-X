@@ -103,14 +103,20 @@ jobs:
       - name: Build TWRP
         run: |
           cd $GITHUB_WORKSPACE/twrp
+          
+          # Fix Read-only file system error by moving ccache to a writable path
+          export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+          mkdir -p $CCACHE_DIR
+          
           export ALLOW_MISSING_DEPENDENCIES=true
           export USE_CCACHE=1
           export CCACHE_EXEC=$(which ccache)
+          
           ccache -M 10G
           source build/envsetup.sh
           lunch twrp_LH8n-eng
           mka vendorbootimage 2>&1 | tee build.log
-
+          
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4

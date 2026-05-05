@@ -17,11 +17,20 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+      - name: Cleanup previous runs
+        run: |
+          echo "Cleaning up workspace to free disk space..."
+          sudo rm -rf $GITHUB_WORKSPACE/twrp
+          sudo rm -rf $GITHUB_WORKSPACE/apt-cache
+          sudo rm -rf $GITHUB_WORKSPACE/*
+          # Optional: Clear docker cache if it's a self-hosted runner using docker
+          docker system prune -af || true 
+
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 8192      # ← increase from 4096; apt needs headroom on root
-          swap-size-mb: 4096         # ← reduce swap to compensate
+          root-reserve-mb: 8192
+          swap-size-mb: 4096
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
@@ -29,7 +38,6 @@ jobs:
 
       - name: Setup build environment
         run: |
-          # Redirect apt cache onto the large build volume, not root fs
           sudo mkdir -p $GITHUB_WORKSPACE/apt-cache
           sudo apt-get -o dir::cache=$GITHUB_WORKSPACE/apt-cache update
           sudo apt-get -o dir::cache=$GITHUB_WORKSPACE/apt-cache install -y \
@@ -79,21 +87,11 @@ jobs:
         run: |
           DRIVER_BASE_URL="https://github.com/HackSucks/tecno_LH8n-TWRP-X/releases/download/v659drv"
           DRIVER_DEST="$GITHUB_WORKSPACE/twrp/device/tecno/LH8n/prebuilt/v659/touchscreen"
-
           mkdir -p "$DRIVER_DEST"
-
           for ko in adaptive-ts.ko focaltech_noflash_common.ko ilitek_common.ko; do
-            echo "Downloading ${ko}..."
-            curl -L --retry 3 --retry-delay 5 --fail \
-              "${DRIVER_BASE_URL}/${ko}" \
-              -o "${DRIVER_DEST}/${ko}"
-            echo "Verifying ${ko}..."
-            file "${DRIVER_DEST}/${ko}" | grep -q "ELF" \
-              || { echo "ERROR: ${ko} does not appear to be a valid kernel module"; exit 1; }
+            curl -L --retry 3 --retry-delay 5 --fail "${DRIVER_BASE_URL}/${ko}" -o "${DRIVER_DEST}/${ko}"
+            file "${DRIVER_DEST}/${ko}" | grep -q "ELF" || exit 1
           done
-
-          echo "V659 touch drivers downloaded successfully:"
-          ls -lh "$DRIVER_DEST"
 
       - name: Set build version name
         run: |
@@ -125,3 +123,4 @@ jobs:
         with:
           name: ${{ env.CUSTOM_BUILD_NAME }}
           path: $GITHUB_WORKSPACE/twrp/out/target/product/LH8n/vendor_boot.img
+          

@@ -75,16 +75,27 @@ jobs:
       - name: Inject V659 touch drivers
         if: ${{ github.event.inputs.firmware_version == 'V659' || github.event.inputs.firmware_version == 'BOTH' }}
         run: |
-          # Download V659 stock ROM and extract drivers
-          # You'll need to host your extracted .ko files somewhere accessible
-          # Option 1: commit them to your device tree repo under prebuilt/
-          # Option 2: upload to a release and wget here
-          echo "V659 driver injection step - see note below"
+          DRIVER_BASE_URL="https://github.com/HackSucks/tecno_LH8n-TWRP-X/releases/download/v659drv"
+          DRIVER_DEST="/twrp/device/tecno/LH8n/prebuilt/v659/touchscreen"
+
+          mkdir -p "$DRIVER_DEST"
+
+          for ko in adaptive-ts.ko focaltech_noflash_common.ko ilitek_common.ko; do
+            echo "Downloading ${ko}..."
+            curl -L --retry 3 --retry-delay 5 --fail \
+              "${DRIVER_BASE_URL}/${ko}" \
+              -o "${DRIVER_DEST}/${ko}"
+            echo "Verifying ${ko}..."
+            file "${DRIVER_DEST}/${ko}" | grep -q "ELF" \
+              || { echo "ERROR: ${ko} does not appear to be a valid kernel module"; exit 1; }
+          done
+
+          echo "V659 touch drivers downloaded successfully:"
+          ls -lh "$DRIVER_DEST"
 
       - name: Set build version name
         run: |
           cd /twrp
-          # Customize the build fingerprint
           BUILD_DATE=$(date +%Y%m%d)
           FIRMWARE=${{ github.event.inputs.firmware_version }}
           echo "CUSTOM_BUILD_NAME=TWRP-LH8n-12.1-NVMe-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV

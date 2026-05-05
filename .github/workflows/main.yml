@@ -87,7 +87,7 @@ jobs:
           # Customize the build fingerprint
           BUILD_DATE=$(date +%Y%m%d)
           FIRMWARE=${{ github.event.inputs.firmware_version }}
-          echo "CUSTOM_BUILD_NAME=TWRP-LH8n-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV
+          echo "CUSTOM_BUILD_NAME=TWRP-LH8n-12.1-NVMe-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV
 
       - name: Build TWRP
         run: |

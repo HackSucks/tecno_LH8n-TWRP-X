@@ -1,0 +1,114 @@
+name: Build TWRP for TECNO LH8n
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_version:
+        description: 'Firmware version to build for'
+        required: true
+        default: 'V659'
+        type: choice
+        options:
+          - V659
+          - V792
+          - BOTH
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git-core gnupg flex bison build-essential \
+            zip curl libc6-dev libncurses5-dev \
+            libx11-dev lib32z1-dev libgl1-mesa-dev \
+            libxml2-utils xsltproc unzip python3 \
+            libssl-dev bc ccache lz4 schedtool \
+            python-is-python3 rsync
+
+      - name: Setup repo tool
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Configure git
+        run: |
+          git config --global user.email "build@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Init TWRP manifest
+        run: |
+          mkdir -p /twrp
+          cd /twrp
+          repo init \
+            -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git \
+            -b twrp-12.1 \
+            --depth=1
+
+      - name: Sync sources
+        run: |
+          cd /twrp
+          repo sync -c -j$(nproc) --no-clone-bundle --no-tags --optimized-fetch --prune
+
+      - name: Clone device tree
+        run: |
+          cd /twrp
+          git clone https://github.com/naden01/tecno_LH8n-TWRP.git \
+            -b android-12.1 \
+            --depth=1 \
+            device/tecno/LH8n
+
+      - name: Inject V659 touch drivers
+        if: ${{ github.event.inputs.firmware_version == 'V659' || github.event.inputs.firmware_version == 'BOTH' }}
+        run: |
+          # Download V659 stock ROM and extract drivers
+          # You'll need to host your extracted .ko files somewhere accessible
+          # Option 1: commit them to your device tree repo under prebuilt/
+          # Option 2: upload to a release and wget here
+          echo "V659 driver injection step - see note below"
+
+      - name: Set build version name
+        run: |
+          cd /twrp
+          # Customize the build fingerprint
+          BUILD_DATE=$(date +%Y%m%d)
+          FIRMWARE=${{ github.event.inputs.firmware_version }}
+          echo "CUSTOM_BUILD_NAME=TWRP-LH8n-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV
+
+      - name: Build TWRP
+        run: |
+          cd /twrp
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export USE_CCACHE=1
+          export CCACHE_EXEC=$(which ccache)
+          ccache -M 10G
+          source build/envsetup.sh
+          lunch twrp_LH8n-eng
+          mka vendorbootimage 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /twrp/build.log
+
+      - name: Upload TWRP image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CUSTOM_BUILD_NAME }}
+          path: /twrp/out/target/product/LH8n/vendor_boot.img

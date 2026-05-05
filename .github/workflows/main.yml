@@ -12,21 +12,42 @@ on:
           - V659
           - V792
           - BOTH
+      clean_build:
+        description: 'Wipe workspace and rebuild from scratch?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Cleanup previous runs
+      - name: Handle workspace state
         run: |
-          echo "Cleaning up workspace to free disk space..."
-          sudo rm -rf $GITHUB_WORKSPACE/twrp
-          sudo rm -rf $GITHUB_WORKSPACE/apt-cache
-          sudo rm -rf $GITHUB_WORKSPACE/*
-          # Optional: Clear docker cache if it's a self-hosted runner using docker
-          docker system prune -af || true 
+          TWRP_DIR="$GITHUB_WORKSPACE/twrp"
+          IMG="$TWRP_DIR/out/target/product/LH8n/vendor_boot.img"
+          CLEAN="${{ github.event.inputs.clean_build }}"
+
+          if [ "$CLEAN" = "yes" ]; then
+            echo "Clean build requested — wiping workspace."
+            sudo rm -rf "$TWRP_DIR" "$GITHUB_WORKSPACE/apt-cache"
+            echo "SKIP_BUILD=false" >> $GITHUB_ENV
+
+          elif [ -f "$IMG" ]; then
+            echo "Existing build found and clean not requested — skipping to upload."
+            echo "SKIP_BUILD=true" >> $GITHUB_ENV
+
+          else
+            echo "No existing build found — wiping just in case and starting fresh."
+            sudo rm -rf "$TWRP_DIR" "$GITHUB_WORKSPACE/apt-cache"
+            echo "SKIP_BUILD=false" >> $GITHUB_ENV
+          fi
 
       - name: Maximize build space
+        if: env.SKIP_BUILD == 'false'
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 8192
@@ -37,6 +58,7 @@ jobs:
           remove-codeql: 'true'
 
       - name: Setup build environment
+        if: env.SKIP_BUILD == 'false'
         run: |
           sudo mkdir -p $GITHUB_WORKSPACE/apt-cache
           sudo apt-get -o dir::cache=$GITHUB_WORKSPACE/apt-cache update
@@ -49,6 +71,7 @@ jobs:
             python-is-python3 rsync
 
       - name: Setup repo tool
+        if: env.SKIP_BUILD == 'false'
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -56,11 +79,13 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
 
       - name: Configure git
+        if: env.SKIP_BUILD == 'false'
         run: |
           git config --global user.email "build@github.com"
           git config --global user.name "GitHub Actions"
 
       - name: Init TWRP manifest
+        if: env.SKIP_BUILD == 'false'
         run: |
           mkdir -p $GITHUB_WORKSPACE/twrp
           cd $GITHUB_WORKSPACE/twrp
@@ -70,11 +95,13 @@ jobs:
             --depth=1
 
       - name: Sync sources
+        if: env.SKIP_BUILD == 'false'
         run: |
           cd $GITHUB_WORKSPACE/twrp
           repo sync -c -j$(nproc) --no-clone-bundle --no-tags --optimized-fetch --prune
 
       - name: Clone device tree
+        if: env.SKIP_BUILD == 'false'
         run: |
           cd $GITHUB_WORKSPACE/twrp
           git clone https://github.com/HackSucks/tecno_LH8n-TWRP-X.git \
@@ -83,50 +110,62 @@ jobs:
             device/tecno/LH8n
 
       - name: Inject V659 touch drivers
-        if: ${{ github.event.inputs.firmware_version == 'V659' || github.event.inputs.firmware_version == 'BOTH' }}
+        if: env.SKIP_BUILD == 'false' && (github.event.inputs.firmware_version == 'V659' || github.event.inputs.firmware_version == 'BOTH')
         run: |
           DRIVER_BASE_URL="https://github.com/HackSucks/tecno_LH8n-TWRP-X/releases/download/v659drv"
           DRIVER_DEST="$GITHUB_WORKSPACE/twrp/device/tecno/LH8n/prebuilt/v659/touchscreen"
           mkdir -p "$DRIVER_DEST"
           for ko in adaptive-ts.ko focaltech_noflash_common.ko ilitek_common.ko; do
-            curl -L --retry 3 --retry-delay 5 --fail "${DRIVER_BASE_URL}/${ko}" -o "${DRIVER_DEST}/${ko}"
-            file "${DRIVER_DEST}/${ko}" | grep -q "ELF" || exit 1
+            echo "Downloading ${ko}..."
+            curl -L --retry 3 --retry-delay 5 --fail \
+              "${DRIVER_BASE_URL}/${ko}" -o "${DRIVER_DEST}/${ko}"
+            file "${DRIVER_DEST}/${ko}" | grep -q "ELF" \
+              || { echo "ERROR: ${ko} is not a valid kernel module"; exit 1; }
           done
+          echo "Touch drivers downloaded successfully:"
+          ls -lh "$DRIVER_DEST"
 
       - name: Set build version name
         run: |
-          cd $GITHUB_WORKSPACE/twrp
           BUILD_DATE=$(date +%Y%m%d)
           FIRMWARE=${{ github.event.inputs.firmware_version }}
           echo "CUSTOM_BUILD_NAME=TWRP-LH8n-12.1-NVMe-${FIRMWARE}-${BUILD_DATE}" >> $GITHUB_ENV
 
       - name: Build TWRP
+        if: env.SKIP_BUILD == 'false'
         run: |
           cd $GITHUB_WORKSPACE/twrp
-          
-          # Fix Read-only file system error by moving ccache to a writable path
           export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
           mkdir -p $CCACHE_DIR
-          
           export ALLOW_MISSING_DEPENDENCIES=true
           export USE_CCACHE=1
           export CCACHE_EXEC=$(which ccache)
-          
           ccache -M 10G
           source build/envsetup.sh
           lunch twrp_LH8n-eng
           mka vendorbootimage 2>&1 | tee build.log
-          
+
+      - name: Locate build output
+        run: |
+          IMG="$GITHUB_WORKSPACE/twrp/out/target/product/LH8n/vendor_boot.img"
+          if [ -f "$IMG" ]; then
+            echo "Build output found: $IMG"
+            ls -lh "$IMG"
+          else
+            echo "ERROR: vendor_boot.img not found at expected path"
+            find $GITHUB_WORKSPACE/twrp/out/target/product/ -name "*.img" 2>/dev/null || echo "No images found at all"
+            exit 1
+          fi
+
       - name: Upload build log
-        if: always()
+        if: always() && env.SKIP_BUILD == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: $GITHUB_WORKSPACE/twrp/build.log
+          path: ${{ github.workspace }}/twrp/build.log
 
       - name: Upload TWRP image
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.CUSTOM_BUILD_NAME }}
-          path: $GITHUB_WORKSPACE/twrp/out/target/product/LH8n/vendor_boot.img
-          
+          path: ${{ github.workspace }}/twrp/out/target/product/LH8n/vendor_boot.img
